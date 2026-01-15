@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>万剑归宗 - 赛博修仙</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            background: linear-gradient(180deg, #000814 0%, #0a1a2f 100%);
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #canvas3d {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        #videoContainer {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 240px;
+            height: 180px;
+            border: 2px solid #00f0ff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.5);
+            display: none;
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        
+        #title {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00f0ff;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.8),
+                         0 0 40px rgba(0, 240, 255, 0.5);
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        #subtitle {
+            position: absolute;
+            top: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ffd700;
+            font-size: 18px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.6);
+            letter-spacing: 4px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            line-height: 1.8;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 240, 255, 0.3);
+        }
+        
+        #instructions div {
+            margin: 5px 0;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00f0ff;
+            font-size: 24px;
+            text-align: center;
+            z-index: 100;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(0, 240, 255, 0.3);
+            border-top: 4px solid #00f0ff;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #gestureStatus {
+            position: absolute;
+            top: 130px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ffd700;
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
+            z-index: 10;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="title">万剑归宗</div>
+        <div id="subtitle">赛博修仙 - Cyber Xianxia</div>
+        <div id="gestureStatus"></div>
+        
+        <canvas id="canvas3d"></canvas>
+        
+        <div id="videoContainer">
+            <video id="video" autoplay playsinline></video>
+        </div>
+        
+        <div id="instructions">
+            <div>🖐️ <strong>Open Palms:</strong> Disperse swords in defensive formation</div>
+            <div>✊ <strong>Fist Clench:</strong> Swords converge and attack forward</div>
+            <div>👉 <strong>Point Finger:</strong> Direct sword beam attack</div>
+            <div>🌀 <strong>Circle Hands:</strong> Swords rotate in vortex</div>
+            <div>🙌 <strong>Hands Apart:</strong> Swords fan out in arc</div>
+        </div>
+        
+        <div id="loading">
+            <div class="spinner"></div>
+            <div>启动灵力系统...</div>
+            <div style="font-size: 14px; margin-top: 10px;">Initializing Hand Tracking...</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    
+    <script>
+        // ===== GLOBAL VARIABLES =====
+        let scene, camera, renderer, composer;
+        let swords = [];
+        let particles = [];
+        let currentGesture = 'idle';
+        let handLandmarks = null;
+        let hands, videoElement, cameraInstance;
+        let attackPoint = new THREE.Vector3(0, 0, -20);
+        let shockwaveRing = null;
+        const SWORD_COUNT = 300;
+        
+        // ===== INITIALIZATION =====
+        async function init() {
+            // Setup Three.js scene
+            setupScene();
+            createSwords();
+            createParticles();
+            createStars();
+            
+            // Setup MediaPipe Hands
+            await setupHandTracking();
+            
+            // Start animation loop
+            animate();
+            
+            // Hide loading screen
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('videoContainer').style.display = 'block';
+        }
+        
+        // ===== THREE.JS SETUP =====
+        function setupScene() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000814, 0.002);
+            
+            camera = new THREE.PerspectiveCamera(
+                75,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000
+            );
+            camera.position.set(0, 5, 30);
+            camera.lookAt(0, 0, 0);
+            
+            renderer = new THREE.WebGLRenderer({
+                canvas: document.getElementById('canvas3d'),
+                antialias: true,
+                alpha: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+            
+            const pointLight = new THREE.PointLight(0x00f0ff, 2, 100);
+            pointLight.position.set(0, 10, 10);
+            scene.add(pointLight);
+            
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        // ===== CREATE SWORDS =====
+        function createSwords() {
+            const swordGeometry = new THREE.ConeGeometry(0.08, 1.2, 4);
+            const swordMaterial = new THREE.MeshPhongMaterial({
+                color: 0x00f0ff,
+                emissive: 0x00f0ff,
+                emissiveIntensity: 0.5,
+                shininess: 100
+            });
+            
+            for (let i = 0; i < SWORD_COUNT; i++) {
+                const sword = new THREE.Mesh(swordGeometry, swordMaterial);
+                
+                // Initial spiral formation
+                const angle = (i / SWORD_COUNT) * Math.PI * 8;
+                const radius = 10 + (i / SWORD_COUNT) * 15;
+                sword.position.x = Math.cos(angle) * radius;
+                sword.position.y = Math.sin(angle * 0.5) * 8;
+                sword.position.z = Math.sin(angle) * radius - 10;
+                
+                sword.userData = {
+                    baseAngle: angle,
+                    baseRadius: radius,
+                    velocity: new THREE.Vector3(),
+                    targetPos: sword.position.clone(),
+                    noiseOffset: Math.random() * 100
+                };
+                
+                // Trail
+                const trailGeometry = new THREE.BufferGeometry();
+                const trailPositions = new Float32Array(60); // 20 points * 3
+                trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+                
+                const trailMaterial = new THREE.LineBasicMaterial({
+                    color: 0x00f0ff,
+                    transparent: true,
+                    opacity: 0.6,
+                    blending: THREE.AdditiveBlending
+                });
+                
+                const trail = new THREE.Line(trailGeometry, trailMaterial);
+                sword.userData.trail = trail;
+                sword.userData.trailPositions = [];
+                scene.add(trail);
+                
+                scene.add(sword);
+                swords.push(sword);
+            }
+        }
+        
+        // ===== CREATE PARTICLES =====
+        function createParticles() {
+            const particleGeometry = new THREE.BufferGeometry();
+            const particleCount = 500;
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 50;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 50;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 50;
+                
+                // Golden qi particles
+                colors[i * 3] = 1;
+                colors[i * 3 + 1] = 0.84;
+                colors[i * 3 + 2] = 0;
+            }
+            
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const particleMaterial = new THREE.PointsMaterial({
+                size: 0.15,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0,
+                blending: THREE.AdditiveBlending
+            });
+            
+            const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+            scene.add(particleSystem);
+            particles.push(particleSystem);
+        }
+        
+        // ===== CREATE BACKGROUND STARS =====
+        function createStars() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starCount = 1000;
+            const positions = new Float32Array(starCount * 3);
+            
+            for (let i = 0; i < starCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 200;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 200;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+            }
+            
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.1,
+                transparent: true,
+                opacity: 0.6
+            });
+            
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+        
+        // ===== HAND TRACKING SETUP =====
+        async function setupHandTracking() {
+            videoElement = document.getElementById('video');
+            
+            hands = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }
+            });
+            
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.6
+            });
+            
+            hands.onResults(onHandResults);
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 } 
+                });
+                videoElement.srcObject = stream;
+                
+                cameraInstance = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({ image: videoElement });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                cameraInstance.start();
+            } catch (error) {
+                console.error('Camera access error:', error);
+                document.getElementById('loading').innerHTML = 
+                    '<div style="color: #ff6b6b;">摄像头访问失败 / Camera Access Denied</div>' +
+                    '<div style="font-size: 14px; margin-top: 10px;">Please allow camera access to control the swords</div>';
+            }
+        }
+        
+        // ===== HAND GESTURE DETECTION =====
+        function onHandResults(results) {
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                currentGesture = 'idle';
+                handLandmarks = null;
+                updateGestureStatus('空闲 - Idle');
+                return;
+            }
+            
+            handLandmarks = results.multiHandLandmarks;
+            const numHands = handLandmarks.length;
+            
+            if (numHands === 2) {
+                detectTwoHandGestures(handLandmarks);
+            } else {
+                detectOneHandGesture(handLandmarks[0]);
+            }
+        }
+        
+        function detectTwoHandGestures(hands) {
+            const hand1 = hands[0];
+            const hand2 = hands[1];
+            
+            // Check if both fists
+            const fist1 = isFist(hand1);
+            const fist2 = isFist(hand2);
+            
+            if (fist1 && fist2) {
+                currentGesture = 'attack';
+                updateGestureStatus('万剑归宗！- Attack!');
+                triggerAttack();
+                return;
+            }
+            
+            // Check if both open palms
+            const open1 = isOpenPalm(hand1);
+            const open2 = isOpenPalm(hand2);
+            
+            if (open1 && open2) {
+                // Check distance between hands
+                const dist = Math.hypot(
+                    hand1[9].x - hand2[9].x,
+                    hand1[9].y - hand2[9].y
+                );
+                
+                if (dist > 0.3) {
+                    currentGesture = 'disperse';
+                    updateGestureStatus('剑阵散开 - Disperse');
+                } else {
+                    currentGesture = 'gather';
+                    updateGestureStatus('聚剑成阵 - Gather');
+                }
+                return;
+            }
+            
+            currentGesture = 'idle';
+            updateGestureStatus('空闲 - Idle');
+        }
+        
+        function detectOneHandGesture(hand) {
+            if (isPointing(hand)) {
+                currentGesture = 'point';
+                updateGestureStatus('剑指！- Point Attack');
+                
+                // Get pointing direction
+                const indexTip = hand[8];
+                const wrist = hand[0];
+                attackPoint.x = (indexTip.x - 0.5) * 40;
+                attackPoint.y = -(indexTip.y - 0.5) * 40;
+                attackPoint.z = -20;
+            } else if (isFist(hand)) {
+                currentGesture = 'attack';
+                updateGestureStatus('万剑归宗！- Attack!');
+                triggerAttack();
+            } else if (isOpenPalm(hand)) {
+                currentGesture = 'disperse';
+                updateGestureStatus('剑阵散开 - Disperse');
+            } else {
+                currentGesture = 'idle';
+                updateGestureStatus('空闲 - Idle');
+            }
+        }
+        
+        function isOpenPalm(hand) {
+            // Check if all fingers are extended
+            const fingerTips = [8, 12, 16, 20]; // Index, middle, ring, pinky tips
+            const fingerBases = [5, 9, 13, 17];
+            
+            let extended = 0;
+            for (let i = 0; i < fingerTips.length; i++) {
+                const tip = hand[fingerTips[i]];
+                const base = hand[fingerBases[i]];
+                if (tip.y < base.y) extended++;
+            }
+            
+            return extended >= 3;
+        }
+        
+        function isFist(hand) {
+            const fingerTips = [8, 12, 16, 20];
+            const palm = hand[0];
+            
+            let closed = 0;
+            for (let tip of fingerTips) {
+                const dist = Math.hypot(hand[tip].x - palm.x, hand[tip].y - palm.y);
+                if (dist < 0.15) closed++;
+            }
+            
+            return closed >= 3;
+        }
+        
+        function isPointing(hand) {
+            const indexTip = hand[8];
+            const indexBase = hand[5];
+            const middleTip = hand[12];
+            const palm = hand[0];
+            
+            // Index extended
+            const indexExtended = indexTip.y < indexBase.y;
+            // Middle finger curled
+            const middleCurled = Math.hypot(middleTip.x - palm.x, middleTip.y - palm.y) < 0.15;
+            
+            return indexExtended && middleCurled;
+        }
+        
+        function updateGestureStatus(text) {
+            document.getElementById('gestureStatus').textContent = text;
+        }
+        
+        // ===== SWORD BEHAVIORS =====
+        function updateSwords(deltaTime) {
+            const time = Date.now() * 0.001;
+            
+            swords.forEach((sword, i) => {
+                const data = sword.userData;
+                
+                // Calculate target position based on gesture
+                switch (currentGesture) {
+                    case 'idle':
+                        // Elegant orbiting formation
+                        const angle = data.baseAngle + time * 0.3;
+                        const radius = 12 + Math.sin(time + i * 0.1) * 3;
+                        data.targetPos.x = Math.cos(angle) * radius;
+                        data.targetPos.y = Math.sin(angle * 0.5) * 5 + Math.sin(time * 2 + i) * 2;
+                        data.targetPos.z = Math.sin(angle) * radius - 10;
+                        break;
+                        
+                    case 'disperse':
+                        // Wide defensive circle
+                        const disperseAngle = (i / SWORD_COUNT) * Math.PI * 2;
+                        const disperseRadius = 20;
+                        data.targetPos.x = Math.cos(disperseAngle) * disperseRadius;
+                        data.targetPos.y = Math.sin(disperseAngle * 0.3) * 10;
+                        data.targetPos.z = Math.sin(disperseAngle) * disperseRadius - 5;
+                        break;
+                        
+                    case 'gather':
+                        // Compact formation
+                        const gatherAngle = (i / SWORD_COUNT) * Math.PI * 2;
+                        const gatherRadius = 5;
+                        data.targetPos.x = Math.cos(gatherAngle) * gatherRadius;
+                        data.targetPos.y = Math.sin(time * 3 + i * 0.1) * 3;
+                        data.targetPos.z = Math.sin(gatherAngle) * gatherRadius;
+                        break;
+                        
+                    case 'point':
+                        // Direct beam attack
+                        const pointAngle = (i / SWORD_COUNT) * Math.PI * 2;
+                        const pointRadius = 2 + (i / SWORD_COUNT) * 3;
+                        data.targetPos.x = attackPoint.x + Math.cos(pointAngle) * pointRadius;
+                        data.targetPos.y = attackPoint.y + Math.sin(pointAngle) * pointRadius;
+                        data.targetPos.z = attackPoint.z - (i / SWORD_COUNT) * 10;
+                        break;
+                }
+                
+                // Smooth movement with spring physics
+                const springStrength = currentGesture === 'attack' ? 0.15 : 0.08;
+                const damping = 0.9;
+                
+                data.velocity.x += (data.targetPos.x - sword.position.x) * springStrength;
+                data.velocity.y += (data.targetPos.y - sword.position.y) * springStrength;
+                data.velocity.z += (data.targetPos.z - sword.position.z) * springStrength;
+                
+                data.velocity.multiplyScalar(damping);
+                
+                sword.position.add(data.velocity);
+                
+                // Point sword in movement direction
+                if (data.velocity.length() > 0.01) {
+                    const direction = data.velocity.clone().normalize();
+                    sword.quaternion.setFromUnitVectors(
+                        new THREE.Vector3(0, 1, 0),
+                        direction
+                    );
+                }
+                
+                // Update trail
+                data.trailPositions.unshift(sword.position.clone());
+                if (data.trailPositions.length > 20) data.trailPositions.pop();
+                
+                const trailPosArray = data.trail.geometry.attributes.position.array;
+                for (let j = 0; j < data.trailPositions.length; j++) {
+                    const pos = data.trailPositions[j];
+                    trailPosArray[j * 3] = pos.x;
+                    trailPosArray[j * 3 + 1] = pos.y;
+                    trailPosArray[j * 3 + 2] = pos.z;
+                }
+                data.trail.geometry.attributes.position.needsUpdate = true;
+            });
+            
+            // Update particles
+            if (currentGesture === 'gather' || currentGesture === 'attack') {
+                particles[0].material.opacity = Math.min(particles[0].material.opacity + 0.02, 0.8);
+            } else {
+                particles[0].material.opacity = Math.max(particles[0].material.opacity - 0.02, 0);
+            }
+        }
+        
+        function triggerAttack() {
+            // Create shockwave effect
+            if (!shockwaveRing) {
+                const ringGeometry = new THREE.RingGeometry(0.1, 1, 32);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x00f0ff,
+                    transparent: true,
+                    opacity: 0.8,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending
+                });
+                shockwaveRing = new THREE.Mesh(ringGeometry, ringMaterial);
+                shockwaveRing.position.z = -15;
+                scene.add(shockwaveRing);
+            }
+            
+            // Animate shockwave
+            shockwaveRing.scale.set(1, 1, 1);
+            shockwaveRing.material.opacity = 0.8;
+            
+            // Camera shake
+            camera.position.x += (Math.random() - 0.5) * 0.5;
+            camera.position.y += (Math.random() - 0.5) * 0.5;
+        }
+        
+        // ===== ANIMATION LOOP =====
+        let lastTime = Date.now();
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const currentTime = Date.now();
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            
+            updateSwords(deltaTime);
+            
+            // Animate shockwave
+            if (shockwaveRing && shockwaveRing.material.opacity > 0) {
+                shockwaveRing.scale.multiplyScalar(1.1);
+                shockwaveRing.material.opacity *= 0.95;
+            }
+            
+            // Camera smooth return
+            camera.position.x *= 0.9;
+            camera.position.y = camera.position.y * 0.9 + 5 * 0.1;
+            
+            renderer.render(scene, camera);
+        }
+        
+        // ===== WINDOW RESIZE =====
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // ===== START APPLICATION =====
+        init();
+    </script>
+</body>
+</html>
